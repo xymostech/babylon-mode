@@ -1,0 +1,25 @@
+{
+  "name": "babylon-mode",
+  "version": "0.1.0",
+  "description": "An emacs mode for highlighting using the babylon parser",
+  "main": "parse.js",
+  "dependencies": {
+    "babylon": "^6.16.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/xymostech/babylon-mode.git"
+  },
+  "keywords": [
+    "emacs"
+  ],
+  "author": "xymostech",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/xymostech/babylon-mode/issues"
+  },
+  "homepage": "https://github.com/xymostech/babylon-mode#readme"
+}
