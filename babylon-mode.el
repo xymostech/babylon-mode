@@ -1,5 +1,5 @@
 (require 'json)
-
+(require 'cc-mode)
 
 (defface babylon-jsx-identifier-face2
   '((t :foreground "SlateGray"))
@@ -10,7 +10,7 @@
 (defvar babylon-mode-syntax-table
   (let ((table (make-syntax-table)))
     (c-populate-syntax-table table)
-    (modify-syntax-entry ?` "\"" table)
+    ; (modify-syntax-entry ?` "\"" table)
     table))
 
 (defvar babylon-script
@@ -75,11 +75,13 @@
    ("ArrowFunctionExpression" . (:keys (body) :extends ("Function" "Expression")))
    ("ObjectMethod" . (:extends ("ObjectMember" "Function")))
    ("TemplateLiteral" . (:keys (quasis expressions) :extends ("Expression")))
+   ("TaggedTemplateExpression" . (:keys (tag quasi) :extends ("Expression")))
    ("TemplateElement" . ())
    ("NewExpression" . (:extends ("CallExpression")))
    ("ArrayPattern" . (:keys (elements) :extends ("Pattern")))
    ("ModuleDeclaration" . ())
    ("ExportNamedDeclaration" . (:keys (declaration specifiers source) :extends ("ModuleDeclaration")))
+   ("ExportDefaultDeclaration" . (:keys (declaration) :extends ("ModuleDeclaration")))
    ("Class" . (:keys (id superClass body decorators)))
    ("ClassBody" . (:keys (body)))
    ("ClassMethod" . (:keys (key params body decorators)))
@@ -89,6 +91,7 @@
    ("ImportDeclaration" . (:keys (specifiers source) :extends ("ModuleDeclaration")))
    ("ModuleSpecifier" . (:keys (local)))
    ("ImportSpecifier" . (:keys (imported) :extends ("ModuleSpecifier")))
+   ("Import" . (:keys () :extends ("Identifier")))
    ("ImportDefaultSpecifier" . (:extends ("ModuleSpecifier")))
    ("ImportNamespaceSpecifier" . (:extends ("ModuleSpecifier")))
    ("ThrowStatement" . (:keys (argument) :extends ("Statement")))
@@ -104,7 +107,13 @@
    ("UpdateExpression" . (:keys (argument) :extends ("Expression")))
    ("DebuggerStatement" . (:extends ("Statement")))
    ("RestProperty" . (:keys (argument)))
+   ("RestElement" . (:keys (argument)))
    ("Super" . ())
+   ("ForInStatement" . (:keys (left right body) :extends ("Statement")))
+   ("ForOfStatement" . (:extends ("ForInStatement")))
+   ("ContinueStatement" . (:extends ("Statement")))
+   ("BreakStatement" . (:extends ("Statement")))
+   ("AwaitExpression" . (:keys (argument) :extends ("Expression")))
 
    ("TypeCastExpression" . (:keys (expression typeAnnotation)))
    ("TypeAnnotation" . (:keys (typeAnnotation)))
@@ -127,8 +136,11 @@
    ("BooleanTypeAnnotation" . ())
    ("ArrayTypeAnnotation" . (:keys (elementType)))
    ("TypeofTypeAnnotation" . (:keys (argument)))
+   ("ObjectTypeSpreadProperty" . (:keys (argument)))
    ("UnionTypeAnnotation" . (:keys (types)))
    ("IntersectionTypeAnnotation" . (:keys (types)))
+   ("StringLiteralTypeAnnotation" . ())
+   ("TupleTypeAnnotation" . (:keys (types)))
 
    ("JSXElement" . (:keys (openingElement closingElement children)))
    ("JSXOpeningElement" . (:keys (name attributes)))
@@ -227,7 +239,9 @@
           ((and (listp tok-type)
                 (equal (alist-get 'label tok-type) "num"))
            (babylon-set-face tok 'font-lock-constant-face))
-          ((equal tok-value "static")
+          ((or
+            (equal tok-value "static")
+            (equal tok-value "await"))
            (babylon-set-face tok 'font-lock-keyword-face))
           ((and (listp tok-type) (alist-get 'keyword tok-type))
            (babylon-set-face tok 'font-lock-keyword-face)))))
@@ -237,7 +251,6 @@
   (let* ((result (json-read-file "/tmp/babylon-parse.json"))
         (tree (alist-get 'body (alist-get 'program result)))
         (toks (alist-get 'tokens result)))
-    (setq bab-tree tree)
     (with-silent-modifications
       (babylon-clear-face (point-min) (point-max))
       (seq-do 'babylon-inspect-tok toks)
@@ -251,12 +264,24 @@
   (setq major-mode 'babylon-mode)
   (setq mode-name "babylon")
 
-  (babylon-parse-current-file)
+  ;; for filling, pretend we're cc-mode
+  ;; (setq-local comment-start "// ")
+  ;; (setq-local comment-end "")
+  ;; (setq-local fill-paragraph-function 'c-fill-paragraph)
+  ;; (setq c-comment-prefix-regexp "//+\\|\\**"
+  ;;       c-paragraph-start "\\(@[[:alpha:]]+\\>\\|$\\)"
+  ;;       c-paragraph-separate "$"
+  ;;       c-block-comment-prefix "* "
+  ;;       c-line-comment-starter "//"
+  ;;       c-comment-start-regexp "/[*/]\\|\\s!"
+  ;;       comment-start-skip "\\(//+\\|/\\*+\\)\\s *")
 
   (add-hook 'change-major-mode-hook #'babylon-mode-exit nil t)
   (add-hook 'after-save-hook #'babylon-parse-current-file nil t)
 
-  (run-hooks 'babylon-mode-hook))
+  (run-hooks 'babylon-mode-hook)
+
+  (babylon-parse-current-file))
 
 (defun babylon-parse-current-file ()
   (babylon-parse (buffer-file-name)))
@@ -275,5 +300,6 @@
   (flycheck-add-mode 'javascript-flow 'babylon-mode))
 
 (add-hook 'babylon-mode-hook 'flycheck-mode)
+;; (add-hook 'babylon-mode-hook 'prettier-js-mode)
 
 (provide 'babylon-mode)
