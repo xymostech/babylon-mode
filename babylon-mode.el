@@ -1,12 +1,16 @@
 (require 'json)
 (require 'cc-mode)
+(require 'xref-babylon)
 
 (defface babylon-jsx-identifier-face2
   '((t :foreground "SlateGray"))
   "The face for JSX identifiers in babylon mode")
 
 (defvar babylon-mode-hook nil)
-(defvar babylon-mode-map (make-keymap))
+(defvar babylon-mode-map
+  (let ((keymap (make-keymap)))
+    (define-key keymap (kbd "<backtab>") 'babylon-unindent-line)
+    keymap))
 (defvar babylon-mode-syntax-table
   (let ((table (make-syntax-table)))
     (c-populate-syntax-table table)
@@ -14,13 +18,12 @@
     table))
 
 (defvar babylon-script
-  "/home/xymostech/projects/babylon-mode/parse.js")
+  "/Users/emilyeisenberg/repos/babylon-mode/parse.js")
 
 (defun babylon-set-face (node face &optional ignore-annotation)
   (if (not node)
       (backtrace)
-    (let* ((loc (alist-get 'loc node))
-           (beg (+ (alist-get 'start node) 1))
+    (let* ((beg (+ (alist-get 'start node) 1))
            (end (+ (alist-get 'end node) 1))
            (annotationStart (alist-get 'start (alist-get 'typeAnnotation node))))
       (if (and annotationStart ignore-annotation)
@@ -28,8 +31,7 @@
           (put-text-property beg end 'font-lock-face face)))))
 
 (defun babylon-clear-node-face (node)
-  (let* ((loc (alist-get 'loc node))
-         (beg (+ (alist-get 'start node) 1))
+  (let* ((beg (+ (alist-get 'start node) 1))
          (end (+ (alist-get 'end node) 1)))
     (babylon-clear-face beg end)))
 
@@ -87,6 +89,7 @@
    ("ClassMethod" . (:keys (key params body decorators)))
    ("ClassProperty" . (:keys (key value)))
    ("ClassDeclaration" . (:keys (id) :extends ("Class")))
+   ("ClassExpression" . (:keys () :extends ("Class" "Expression")))
    ("SpreadProperty" . (:keys (argument)))
    ("ImportDeclaration" . (:keys (specifiers source) :extends ("ModuleDeclaration")))
    ("ModuleSpecifier" . (:keys (local)))
@@ -114,6 +117,10 @@
    ("ContinueStatement" . (:extends ("Statement")))
    ("BreakStatement" . (:extends ("Statement")))
    ("AwaitExpression" . (:keys (argument) :extends ("Expression")))
+   ("SequenceExpression" . (:keys (expressions) :extends ("Expression")))
+   ("ExportSpecifier" . (:keys (local exported)))
+   ("OptionalMemberExpression" . (:keys (object property) :extends ("Expression")))
+   ("OptionalCallExpression" . (:keys (callee arguments) :extends ("Expression")))
 
    ("TypeCastExpression" . (:keys (expression typeAnnotation)))
    ("TypeAnnotation" . (:keys (typeAnnotation)))
@@ -151,7 +158,11 @@
    ("JSXAttribute" . (:keys (name value)))
    ("JSXMemberExpression" . (:keys (object property)))
    ("JSXSpreadAttribute" . (:keys (argument)))
+   ("JSXSpreadChild" . (:keys (expression)))
    ("JSXEmptyExpression" . ())
+   ("JSXFragment" . (:keys (openingFragment closingFragment children)))
+   ("JSXOpeningFragment" . ())
+   ("JSXClosingFragment" . ())
    ))
 
 (defun babylon-traverse-node-key (node key)
@@ -207,6 +218,8 @@
                (babylon-set-face (alist-get 'value node) 'font-lock-type-face))
               ((equal node-type "BooleanLiteral")
                (babylon-set-face node 'font-lock-constant-face))
+              ((equal node-type "RegExpLiteral")
+               (babylon-set-face node 'font-lock-string-face))
               ((equal node-type "NullLiteral")
                (babylon-set-face node 'font-lock-constant-face))
               ((and (equal node-type "Identifier")
@@ -241,20 +254,73 @@
            (babylon-set-face tok 'font-lock-constant-face))
           ((or
             (equal tok-value "static")
+            (equal tok-value "let")
+            (equal tok-value "async")
             (equal tok-value "await"))
            (babylon-set-face tok 'font-lock-keyword-face))
           ((and (listp tok-type) (alist-get 'keyword tok-type))
            (babylon-set-face tok 'font-lock-keyword-face)))))
 
+(defun read-bytes (path)
+  (with-temp-buffer
+    (set-buffer-multibyte nil)
+    (setq buffer-file-coding-system 'binary)
+    (insert-file-contents-literally path)
+    (buffer-substring-no-properties (point-min) (point-max))))
+
+(defun read-text (path)
+  (decode-coding-string (f-read-bytes path) 'utf-8))
+
 (defun babylon-parse (file)
   (call-process "node" nil nil nil babylon-script file)
-  (let* ((result (json-read-file "/tmp/babylon-parse.json"))
-        (tree (alist-get 'body (alist-get 'program result)))
-        (toks (alist-get 'tokens result)))
-    (with-silent-modifications
-      (babylon-clear-face (point-min) (point-max))
-      (seq-do 'babylon-inspect-tok toks)
-      (seq-do 'babylon-traverse tree))))
+  (if (file-exists-p "/tmp/babylon-parse.json")
+      (let* ((result (json-read-file "/tmp/babylon-parse.json"))
+             (tree (alist-get 'body (alist-get 'program result)))
+             (toks (alist-get 'tokens result)))
+        (with-silent-modifications
+          (babylon-clear-face (point-min) (point-max))
+          (seq-do 'babylon-inspect-tok toks)
+          (seq-do 'babylon-traverse tree)))
+    (message (read-text "/tmp/babylon-error"))))
+
+(defun indentation-of-line ()
+  (save-excursion
+    (beginning-of-line)
+    (let ((end (save-excursion (forward-line 1) (point)))
+          (beginning-point (point)))
+      (skip-chars-forward " \t" end)
+      (- (point) beginning-point))))
+
+(defun previous-nonempty-line ()
+  (previous-line)
+  (if (eq (save-excursion (beginning-of-line) (point))
+          (save-excursion (end-of-line) (point)))
+      (previous-line)))
+
+(defun indentation-of-previous-nonempty-line ()
+  (save-excursion
+    (beginning-of-line)
+    (if (eq (point) (point-min))
+        0
+      (previous-nonempty-line)
+      (indentation-of-line))))
+
+(defun babylon-indent-line ()
+  (interactive)
+  (let ((curr-indentation (indentation-of-line))
+        (prev-indentation (indentation-of-previous-nonempty-line)))
+    (beginning-of-line)
+    (delete-horizontal-space)
+    (if (eq curr-indentation prev-indentation)
+        (indent-to (+ prev-indentation js-indent-level))
+      (indent-to prev-indentation))))
+
+(defun babylon-unindent-line ()
+  (interactive)
+  (let ((curr-indentation (indentation-of-line)))
+    (beginning-of-line)
+    (delete-horizontal-space)
+    (indent-to (- curr-indentation js-indent-level))))
 
 (defun babylon-mode ()
   (interactive)
@@ -264,17 +330,7 @@
   (setq major-mode 'babylon-mode)
   (setq mode-name "babylon")
 
-  ;; for filling, pretend we're cc-mode
-  ;; (setq-local comment-start "// ")
-  ;; (setq-local comment-end "")
-  ;; (setq-local fill-paragraph-function 'c-fill-paragraph)
-  ;; (setq c-comment-prefix-regexp "//+\\|\\**"
-  ;;       c-paragraph-start "\\(@[[:alpha:]]+\\>\\|$\\)"
-  ;;       c-paragraph-separate "$"
-  ;;       c-block-comment-prefix "* "
-  ;;       c-line-comment-starter "//"
-  ;;       c-comment-start-regexp "/[*/]\\|\\s!"
-  ;;       comment-start-skip "\\(//+\\|/\\*+\\)\\s *")
+  (setq indent-line-function 'babylon-indent-line)
 
   (add-hook 'change-major-mode-hook #'babylon-mode-exit nil t)
   (add-hook 'after-save-hook #'babylon-parse-current-file nil t)
@@ -295,11 +351,16 @@
   (remove-text-properties beg end '(font-lock-face nil
                                     syntax-table nil)))
 
-(with-eval-after-load 'flycheck
-  (flycheck-add-mode 'javascript-eslint 'babylon-mode)
-  (flycheck-add-mode 'javascript-flow 'babylon-mode))
+;(with-eval-after-load 'flycheck
+;  (flycheck-add-mode 'javascript-eslint 'babylon-mode)
+;  (flycheck-add-mode 'javascript-flow 'babylon-mode))
 
-(add-hook 'babylon-mode-hook 'flycheck-mode)
+(setq xref-babylon-search-program 'rg)
+
+(add-hook 'babylon-mode-hook (lambda ()
+  (add-hook 'xref-backend-functions #'xref-babylon-xref-backend nil t)))
+
+;(add-hook 'babylon-mode-hook 'flycheck-mode)
 ;; (add-hook 'babylon-mode-hook 'prettier-js-mode)
 
 (provide 'babylon-mode)

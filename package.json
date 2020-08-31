@@ -4,7 +4,7 @@
   "description": "An emacs mode for highlighting using the babylon parser",
   "main": "parse.js",
   "dependencies": {
-    "babylon": "^6.18.0"
+    "@babel/parser": "^7.7.0"
   },
   "devDependencies": {},
   "scripts": {},
