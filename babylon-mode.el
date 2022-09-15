@@ -1,6 +1,7 @@
 (require 'json)
 (require 'cc-mode)
 (require 'xref-babylon)
+(require 'f)
 
 (defface babylon-jsx-identifier-face2
   '((t :foreground "SlateGray"))
@@ -41,6 +42,7 @@
    ("Statement" . ())
    ("ExpressionStatement" . (:keys (expression) :extends ("Statement")))
    ("BlockStatement" . (:keys (body directives) :extends ("Statement")))
+   ("EmptyStatement" . (:extends ("Statement")))
    ("WithStatement" . (:keys (body object) :extends ("Statement")))
    ("ReturnStatement" . (:keys (argument) :extends ("Statement")))
    ("Declaration" . (:extends ("Statement")))

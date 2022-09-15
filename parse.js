@@ -27,6 +27,9 @@ try {
   });
 
   function locToPoint(loc) {
+    if (lines[loc.line - 1] == null) {
+      return pointCount;
+    }
     return pointCounts[loc.line - 1] + [...lines[loc.line - 1].slice(0, loc.column)].length;
   }
 
